@@ -1,0 +1,189 @@
+use std::str::FromStr;
+
+use crate::ast::*;
+
+grammar;
+
+match {
+    // The default whitespace skipping is disabled an `ignore pattern` is specified
+    r"\s*" => { }, 
+    // Skip `// comments`
+    r"//[^\n\r]*" => { }, 
+    // Skip `/* comments */`
+    r"/\*([^\*]*\*+[^\*/])*([^\*]*\*+|[^\*])*\*/" => { },  
+    _
+}
+
+
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => { v.push(e); v},
+    }
+}
+
+CommaNoTrail<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> => { v.push(e); v }
+}
+
+ParCNT<T>: Vec<T> = {
+    "()" => Vec::new(),
+    "(" <CommaNoTrail<T>> ")" => <>,
+}
+
+pub Program: Program = {
+    <f: Func> <prog: Program> => {
+        let mut vf = prog.funcs;
+        vf.push(f);
+        Program {funcs: vf}
+    },
+    <f: Func> => {
+        let mut vf = Vec::new();
+        vf.push(f);
+        Program { funcs: vf }
+    },
+}
+
+pub Func: Func = {
+    "fn" <name:Id> <params: Params> <ret: ("->" <Type>)?> <body: Block> =>
+    Func {
+        name,
+        params,
+        ret_type: match ret {
+                None => Type::Unit,
+                Some(r) => r
+            },
+        body
+    },
+}
+
+Params: Params = {
+    ParCNT<Param> => Params(<>),
+}
+
+Param: Param = {
+    <_mut: "mut"?> <name: Id> ":" <_type: Type> =>
+    Param {
+        name: name,
+        mutable: _mut.is_some(),
+        _type: _type,
+    },
+}
+
+pub Block: Vec<Stmt> = {
+    "{" <stmts: StmtSeq*> <stmt: Stmt?> "}" => {
+        let mut stmts: Vec<Stmt> = stmts.into_iter().flatten().collect();
+        if let Some(stmt) = stmt {
+            stmts.push(Stmt::Return(Box::new(Expr::Stmt(stmt))));
+        };
+
+        stmts
+    }
+}
+
+pub StmtSeq: Vec<Stmt> = {
+    ";" => vec![Stmt::Semi],
+    <Stmt> ";" => vec![<>, Stmt::Semi],
+    StmtBlock => vec![<>],
+}
+
+StmtBlock: Stmt = {
+    "while" <Expr> <Block> => Stmt::While(<>),
+    "if" <Expr> <Block> <("else" <Block>)?> => Stmt::If(<>),
+    Block => Stmt::Block(<>),
+}
+
+Stmt: Stmt = {
+    "let" <mutable:"mut"?> <id:Id> <_type:(":"<Type>)?> <expr:("=" <Expr>)?> => 
+        Stmt::Let(
+            if let Some(_) = mutable {true} else {false},
+            id,
+            _type,
+            expr,
+        ),
+    <Expr> "=" <Expr> => Stmt::Assign(<>),
+    <Expr1> => Stmt::Expr(<>),
+}
+
+pub Exprs: Exprs = {
+    ParCNT<Expr1> => Exprs(<>),
+}
+
+pub Expr = {
+    ExprBlock,
+    Expr1,
+}
+
+pub ExprBlock: Box<Expr> = {
+    "if" <expr: Expr> <block: Block> "else" <el_block: Block> => {
+        let stmt = Stmt::If(expr, block, Some(el_block));
+        Box::new(Expr::Stmt(stmt))
+    },
+    Block => Box::new(Expr::Block(<>)),
+}
+
+pub Expr1: Box<Expr> = {
+    Expr1 LoCode Expr2 => Box::new(Expr::Infix(<>)),
+    Expr1 ArCode Expr2 => Box::new(Expr::Infix(<>)),
+    Expr2,
+}
+
+pub Expr2: Box<Expr> = {
+    Expr2 FactorCode Lit => Box::new(Expr::Infix(<>)),
+    Lit,
+}
+
+ArCode: OpCode = {
+    "+" => OpCode::Add,
+    "-" => OpCode::Sub,
+}
+
+FactorCode: OpCode = {
+    "*" => OpCode::Mul,
+    "/" => OpCode::Div,
+}
+
+LoCode: OpCode = {
+    "&&" => OpCode::And,
+    "||" => OpCode::Or,
+    "==" => OpCode::Equal,
+    "!=" => OpCode::NotEqual,
+    ">" => OpCode::Greater,
+    "<" => OpCode::Lesser,
+    ">=" => OpCode::GreaterOrEqual,
+    "<=" => OpCode::LesserOrEqual,
+}
+
+Lit: Box<Expr> = {
+    <Id> <Exprs> => Box::new(Expr::Call(<>)),
+    ArCode Lit => Box::new(Expr::Prefix(<>)),
+    "!" <Lit> => Box::new(Expr::Prefix(OpCode::Not, <>)),
+    Bool => Box::new(Expr::Term(Lit::Bool(<>))),
+    Num => Box::new(Expr::Term(Lit::Num(<>))),
+    Id => Box::new(Expr::Term(Lit::Id(<>))),
+    "&" <Lit> => Box::new(Expr::Ref(<>)),
+    "&" "mut" <Lit> => Box::new(Expr::RefMut(<>)),
+    "*" <Lit> => Box::new(Expr::DeRef(<>)),
+    "(" <Expr> ")",
+}
+
+Type: Type = {
+	"bool" => Type::Bool,
+    "i32" => Type::Int,
+    "()" => Type::Unit,
+    "&" <Type> => Type::Ref(Box::new(<>)),
+    "&" "mut" <Type> => Type::Ref(Box::new(Type::Mut(Box::new(<>)))),
+}
+
+Bool: bool = {
+    "true" => bool::from_str(<>).unwrap(),
+    "false" => bool::from_str(<>).unwrap(),
+}
+
+Num: i32 = {
+    r"-?[0-9]+" => i32::from_str(<>).unwrap(),
+};
+
+Id: String = {
+    r"([a-z]|[A-Z]|_)([a-z]|[A-Z]|[0-9]|_)*" => String::from_str(<>).unwrap(),
+}
