@@ -111,6 +111,32 @@ fn eval_expr(e: &Expr, m: &mut Mem, fn_env: &FnEnv) -> Val {
 
         Expr::Call(name, exprs) => {
             println!("[Expr] Calling function named {:?} with arguments {:?}", name, exprs);
+            
+            let expr_list: Vec<Box<Expr>> = exprs.0.clone();
+            let mut mut_refs: Vec<String> = Vec::new();
+
+            for e in expr_list.iter(){
+                match &**e {
+                    Expr::RefMut(s) => {
+                        let id = deref_reference(s).to_owned();
+                        if mut_refs.contains(&id){
+                            panic!("[BorrowCheck] Error cannot borrow mutably {:?} more than once", id);
+                        }
+                        mut_refs.push(id)
+                    },
+                    Expr::Ref(s) => {
+                        let id = deref_reference(s).to_owned();
+                        if mut_refs.contains(&id){
+                            panic!("[BorrowCheck] Error cannot borrow {:?} because its already borrowed as mutable", id);
+                        }
+                    },
+                    _ => {}
+                };
+
+                println!("{:?}", **e);
+            }
+
+
             let args: Vec<Val> = exprs.0.iter().map(|expr| eval_expr(expr, m, fn_env)).collect();
 
             eval_fn(name, &args, m, fn_env)
@@ -148,11 +174,13 @@ fn eval_stmts(stmts: &Vec<Stmt>, m: &mut Mem, fn_env: &FnEnv) -> Val {
                 match e_orig {
                     Some(e) => {
                         let r_expr = &(e.clone());
+                        let mut assign_id = "".to_string();
+                        let mut assign_scope = 0;
                         let r = match &**r_expr {
                             Expr::DeRef(e) => {
                                 let r_ref = deref_reference(e);
-                                let i = m.get_scope_of_id(id.to_owned());
-                                m.check_ref(r_ref, i);
+                                assign_id = r_ref;
+                                assign_scope = m.get_scope_of_id(id.to_owned());
                                 eval_expr(r_expr, m, fn_env)
                             }
                             _ => {
@@ -163,13 +191,13 @@ fn eval_stmts(stmts: &Vec<Stmt>, m: &mut Mem, fn_env: &FnEnv) -> Val {
                         let scope = m.get_scope_of_id(id.to_owned());
                         match r {
                             Val::Ref(s) => {
-                                m.add_ref(id.to_owned(), Bc::Ref(s.to_owned(), scope))
+                                m.add_ref(s.to_owned(),id.to_owned(), Bc::Ref(s.to_owned(), scope))
                             },
                             Val::RefMut(s) => {
-                                m.add_ref(id.to_owned(), Bc::RefMut(s.to_owned(), scope))
+                                m.add_ref(s.to_owned(),id.to_owned(), Bc::RefMut(s.to_owned(), scope))
                             },
                             _ => {
-                                m.add_ref(id.to_owned(), Bc::Owner(id.to_owned(), scope))
+                                m.add_ref(id.to_owned(), id.to_owned(), Bc::Owner(id.to_owned(), scope))
                             },
                         };
 
@@ -188,26 +216,27 @@ fn eval_stmts(stmts: &Vec<Stmt>, m: &mut Mem, fn_env: &FnEnv) -> Val {
                     Expr::DeRef(e) => {
                         let r_ref = deref_reference(e);
                         let i = m.get_scope_of_id(id.to_owned());
-                        m.check_ref(r_ref, i);
                         v = eval_expr(r_expr, m, fn_env);
+                        println!("[Deref] {:?} {:?} {:?}", id.to_owned(), r_ref, i);
                         m.update(id.to_owned(), v, true)
                     },
                     Expr::Ref(e) => {
                         let r_ref = deref_reference(e);
                         let i = m.get_scope_of_id(r_ref.to_owned());
-                        m.add_ref(id.to_owned(), Bc::Ref(r_ref.to_owned(), i));
+                        m.add_ref(r_ref.to_owned(), id.to_owned(), Bc::Ref(r_ref.to_owned(), i));
                         v = eval_expr(r_expr, m, fn_env);
                         m.update(id.to_owned(), v, false)
                     },
                     Expr::RefMut(e) => {
                         let r_ref = deref_reference(e);
                         let i = m.get_scope_of_id(r_ref.to_owned());
-                        m.add_ref(id.to_owned(), Bc::RefMut(r_ref.to_owned(), i));
+                        m.add_ref(r_ref.to_owned(),id.to_owned(), Bc::RefMut(r_ref.to_owned(), i));
                         v = eval_expr(r_expr, m, fn_env);
                         m.update(id.to_owned(), v, false)
                     }
                     _ => {
                         v = eval_expr(r_expr, m, fn_env);
+                        println!("[Deref] {:?} ", id.to_owned());
                         m.update(id.to_owned(), v, true)
                     }
                 };
@@ -330,10 +359,10 @@ fn borrow_test_refchanged(){
     let mut m = Mem::new();
     let program = &ProgramParser::new().parse(r#"
         fn main() {
-            let a = 1;
-            let b = 2;
-            let mut borrowed = &a;
-            borrowed = &b; // first reference to a is dropped in the stack since we changed what 'borrowed' reference to 
+            let mut a = 1;
+            let mut b = 2;
+            let mut c = &mut a;
+            c = &mut b; // first reference to a is dropped in the stack since we changed what 'borrowed' reference to
         }
     "#).unwrap();
     let fn_env = progam_to_env(program);
@@ -345,13 +374,34 @@ fn borrow_test_refchanged(){
 fn borrow_test_mut(){
     let mut m = Mem::new();
     let program = &ProgramParser::new().parse(r#"
-        fn main() {
-            let mut a = 1;
-            let bm_a = &mut a;
-            let bm_a_2 = &mut a; // <-- Error second mutable borrow
-            *bm_a = 2;
-            *bm_a_2 = 3; // <-- Error actually occurs here but is caused by the above one           
-        }
+    fn main() {
+        let mut a = 0;
+        let mut b = 0;
+        let b1 = &mut b;
+        let a1 = &mut a;
+        *b1 = *b1 + 1;
+        *a1 = *a1 + 1;
+    } 
+    "#).unwrap();
+    let fn_env = progam_to_env(program);
+    let args: Vec<Val> = Vec::new();
+    println!("{:?}", eval_fn("main", &args, &mut m, &fn_env));
+}
+
+#[test]
+fn borrow_test_func(){
+    let mut m = Mem::new();
+    let program = &ProgramParser::new().parse(r#"
+    fn f(i:&mut i32, j:&mut i32) -> i32 {
+        *i
+
+    }
+
+    fn main() {
+        let mut a = 0;
+        let x = f(&mut a, &mut a);
+        
+    }
     "#).unwrap();
     let fn_env = progam_to_env(program);
     let args: Vec<Val> = Vec::new();
