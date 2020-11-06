@@ -133,13 +133,12 @@ impl Mem {
     }
 
     pub fn add_ref(&mut self, id: String, ref_id: String, bc: Bc){
-        let mut i = 0;
         let mut found = false;
 
-        let mut hm = self.1.clone();
+        let hm = self.1.clone();
         let mut stack: VecDeque<(String, Bc)>;
         for item in hm.iter() {
-            i = 0;
+            let mut i = 0;
             println!("[add_ref] Checking for dupes {:?} {:?}", item.0, item.1);
             stack = item.1.clone();
             for bc in stack.iter(){
@@ -177,7 +176,7 @@ impl Mem {
     pub fn check_ref(&mut self, id: String, ref_id: String, scope: usize) {
         println!("[Borrow] Checking reference {:?}", id);
         
-        let mut buf_stack = match self.1.get(&id) {
+        let buf_stack = match self.1.get(&id) {
                                                         Some(v) => v.clone(),
                                                         _ => VecDeque::<(String, Bc)>::new(),
                                                     };
@@ -189,9 +188,6 @@ impl Mem {
                 Bc::Ref(_, i) => *i,
                 Bc::RefMut(_, i) => *i,
                 Bc::Owner(_, i) => *i,
-                _ => {
-                    0
-                }
             };
 
             if bc.0 == ref_id.to_owned() {
@@ -279,7 +275,7 @@ impl Mem {
                     Bc::RefMut(name, scope) => {
                         (name, scope)
                     },
-                    Bc::Ref(name, scope) => {
+                    Bc::Ref(_, _) => {
                         panic!("[Borrow] Error cannot access reference {:?} as a mutable", id)
                     },
                 };

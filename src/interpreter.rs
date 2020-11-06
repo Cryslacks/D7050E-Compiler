@@ -174,22 +174,9 @@ fn eval_stmts(stmts: &Vec<Stmt>, m: &mut Mem, fn_env: &FnEnv) -> Val {
                 match e_orig {
                     Some(e) => {
                         let r_expr = &(e.clone());
-                        let mut assign_id = "".to_string();
-                        let mut assign_scope = 0;
-                        let r = match &**r_expr {
-                            Expr::DeRef(e) => {
-                                let r_ref = deref_reference(e);
-                                assign_id = r_ref;
-                                assign_scope = m.get_scope_of_id(id.to_owned());
-                                eval_expr(r_expr, m, fn_env)
-                            }
-                            _ => {
-                                eval_expr(r_expr, m, fn_env)
-                            }
-                        };
-                        let val = r.clone();
+                        let val = eval_expr(r_expr, m, fn_env);
                         let scope = m.get_scope_of_id(id.to_owned());
-                        match r {
+                        match val.clone() {
                             Val::Ref(s) => {
                                 m.add_ref(s.to_owned(),id.to_owned(), Bc::Ref(s.to_owned(), scope))
                             },
@@ -376,11 +363,8 @@ fn borrow_test_mut(){
     let program = &ProgramParser::new().parse(r#"
     fn main() {
         let mut a = 0;
-        let mut b = 0;
-        let b1 = &mut b;
         let a1 = &mut a;
-        *b1 = *b1 + 1;
-        *a1 = *a1 + 1;
+        *a1 = *a1 + 10;
     } 
     "#).unwrap();
     let fn_env = progam_to_env(program);
