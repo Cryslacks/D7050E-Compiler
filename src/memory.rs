@@ -162,9 +162,9 @@ impl Mem {
 
 
         let mut buf_stack = match self.1.get(&id) {
-                                                        Some(v) => v.clone(),
-                                                        _ => VecDeque::<(String, Bc)>::new(),
-                                                    };
+                                                    Some(v) => v.clone(),
+                                                    _ => VecDeque::<(String, Bc)>::new(),
+                                                };
 
         self.1.remove(&id);
         buf_stack.push_front((ref_id.to_owned(), bc));
@@ -177,9 +177,9 @@ impl Mem {
         println!("[Borrow] Checking reference {:?}", id);
         
         let buf_stack = match self.1.get(&id) {
-                                                        Some(v) => v.clone(),
-                                                        _ => VecDeque::<(String, Bc)>::new(),
-                                                    };
+                                                Some(v) => v.clone(),
+                                                _ => VecDeque::<(String, Bc)>::new(),
+                                            };
         let mut found = false;
         let mut b_scope: usize;
 

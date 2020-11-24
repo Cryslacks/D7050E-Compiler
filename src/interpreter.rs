@@ -279,6 +279,19 @@ fn eval_stmts(stmts: &Vec<Stmt>, m: &mut Mem, fn_env: &FnEnv) -> Val {
 pub fn eval_fn(name: &str, params: &Vec<Val>, m: &mut Mem, fn_env: &FnEnv) -> Val {
     if let Some(decl) = fn_env.get(name) {
         println!("[Func] Evaluating function {:?} with params {:?}", name, params);
+        let mut paramReferenceMutable: Vec<String> = Vec::new();
+        for v in params{
+            match v {
+                Val::RefMut(s) => {
+                    if paramReferenceMutable.contains(s) {
+                        panic!("[BorrowCheck] Error cannot borrow mutably {:?} more than once",s);
+                    }
+
+                    paramReferenceMutable.push(s.to_string());
+                },
+                _ => {}
+            }
+        }
         let id: &Vec<(bool, String)> = &decl.params.0.iter().
             map(|param| (param.mutable, param.name.to_owned())).collect();
 
@@ -376,15 +389,15 @@ fn borrow_test_mut(){
 fn borrow_test_func(){
     let mut m = Mem::new();
     let program = &ProgramParser::new().parse(r#"
-    fn f(i:&mut i32, j:&mut i32) -> i32 {
+    fn f(i:&mut i32, j:&mut i32) -> i32 { 
         *i
-
     }
 
     fn main() {
         let mut a = 0;
-        let x = f(&mut a, &mut a);
-        
+        let b = &mut a;
+        let c = &mut a;
+        let x = f(b, c);
     }
     "#).unwrap();
     let fn_env = progam_to_env(program);
