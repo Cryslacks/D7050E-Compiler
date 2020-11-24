@@ -280,6 +280,7 @@ pub fn eval_fn(name: &str, params: &Vec<Val>, m: &mut Mem, fn_env: &FnEnv) -> Va
     if let Some(decl) = fn_env.get(name) {
         println!("[Func] Evaluating function {:?} with params {:?}", name, params);
         let mut paramReferenceMutable: Vec<String> = Vec::new();
+        let mut paramReference: Vec<String> = Vec::new();
         for v in params{
             match v {
                 Val::RefMut(s) => {
@@ -287,8 +288,19 @@ pub fn eval_fn(name: &str, params: &Vec<Val>, m: &mut Mem, fn_env: &FnEnv) -> Va
                         panic!("[BorrowCheck] Error cannot borrow mutably {:?} more than once",s);
                     }
 
+                    if paramReference.contains(s) {
+                        panic!("[BorrowCheck] Error cannot borrow {:?} as immutable because its also borrowed as mutable",s);
+                    }
+
                     paramReferenceMutable.push(s.to_string());
                 },
+                Val::Ref(s) => {
+                    if paramReferenceMutable.contains(s) {
+                        panic!("[BorrowCheck] Error cannot borrow {:?} as immutable because its also borrowed as mutable",s);
+                    }
+
+                    paramReference.push(s.to_string());
+                }
                 _ => {}
             }
         }
@@ -389,14 +401,13 @@ fn borrow_test_mut(){
 fn borrow_test_func(){
     let mut m = Mem::new();
     let program = &ProgramParser::new().parse(r#"
-    fn f(i:&mut i32, j:&mut i32) -> i32 { 
-        *i
+    fn f(i:&i32, j:&mut i32) -> i32 {
     }
 
     fn main() {
         let mut a = 0;
         let b = &mut a;
-        let c = &mut a;
+        let c = &a;
         let x = f(b, c);
     }
     "#).unwrap();
